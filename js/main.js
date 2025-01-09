@@ -104,28 +104,32 @@ async function processExcel(file) {
 
         const institutionCode = rowData['医疗机构编码'];
         const institutionName = rowData['医疗机构名称'];
+        const amount = parseFloat(rowData['扣款金额']) || 0;
 
-        if (!groupedData[institutionCode]) {
-            groupedData[institutionCode] = {
-                name: institutionName,
-                data: []
-            };
-        }
-
-        const newRow = {};
-        columnsToKeep.forEach(col => {
-            if (col === '扣款金额（元）') {
-                newRow[col] = Number(rowData['扣款金额']).toFixed(2);
-            } else if (col === '二次反馈') {
-                newRow[col] = '无异议';
-            } else if (col === '备注') {
-                newRow[col] = '';
-            } else {
-                newRow[col] = rowData[col];
+        // 只处理扣款金额大于 0 的数据
+        if (amount > 0) {
+            if (!groupedData[institutionCode]) {
+                groupedData[institutionCode] = {
+                    name: institutionName,
+                    data: []
+                };
             }
-        });
 
-        groupedData[institutionCode].data.push(newRow);
+            const newRow = {};
+            columnsToKeep.forEach(col => {
+                if (col === '扣款金额（元）') {
+                    newRow[col] = amount.toFixed(2);
+                } else if (col === '二次反馈') {
+                    newRow[col] = '无异议';
+                } else if (col === '备注') {
+                    newRow[col] = '';
+                } else {
+                    newRow[col] = rowData[col];
+                }
+            });
+
+            groupedData[institutionCode].data.push(newRow);
+        }
     });
 
     const zip = new JSZip();
@@ -157,11 +161,23 @@ async function processExcel(file) {
 
         institution.data.forEach(data => {
             const row = ws.addRow(columnsToKeep.map(col => data[col]));
-            row.eachCell(cell => {
+            row.eachCell((cell, colNumber) => {
                 cell.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true };
-                if (typeof cell.value === 'number') {
+                
+                // 获取当前列的名称
+                const columnName = columnsToKeep[colNumber - 1];
+                
+                // 判断是否应该使用 Times New Roman 字体
+                if (typeof cell.value === 'number' || 
+                    columnName === '医疗机构编码' ||
+                    columnName === '结算日期' ||
+                    columnName === '扣款金额（元）' ||
+                    columnName === '疑似违规金额' ||
+                    columnName === '终审时间') {
                     cell.font = { name: 'Times New Roman', size: 11 };
-                    cell.numFmt = '0.00';
+                    if (typeof cell.value === 'number') {
+                        cell.numFmt = '0.00';
+                    }
                 } else {
                     cell.font = { name: '方正仿宋_GBK', size: 11 };
                 }
@@ -247,11 +263,14 @@ async function processSummaryExcel(file) {
             if (header) rowData[header.trim()] = cell.value;
         });
 
-        if (rowData['医疗机构编码'] && rowData['医疗机构名称'] && rowData['扣款金额'] && rowData['险种类型']) {
+        // 只处理有效数据且扣款金额大于 0 的行
+        const amount = parseFloat(rowData['扣款金额']) || 0;
+        if (rowData['医疗机构编码'] && rowData['医疗机构名称'] && 
+            rowData['险种类型'] && amount > 0) {
             rows.push({
                 '医疗机构编码': rowData['医疗机构编码'],
                 '医疗机构名称': rowData['医疗机构名称'],
-                '扣款金额': parseFloat(rowData['扣款金额']) || 0,
+                '扣款金额': amount,
                 '险种类型': rowData['险种类型'],
                 '人次': 1
             });
