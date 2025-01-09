@@ -164,16 +164,21 @@ async function processExcel(file) {
             row.eachCell((cell, colNumber) => {
                 cell.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true };
                 
-                // 获取当前列的名称
                 const columnName = columnsToKeep[colNumber - 1];
                 
-                // 判断是否应该使用 Times New Roman 字体
+                // 扩展使用 Times New Roman 字体的条件
                 if (typeof cell.value === 'number' || 
                     columnName === '医疗机构编码' ||
                     columnName === '结算日期' ||
                     columnName === '扣款金额（元）' ||
                     columnName === '疑似违规金额' ||
-                    columnName === '终审时间') {
+                    columnName === '终审时间' ||
+                    // 添加对数字字符串的判断
+                    (typeof cell.value === 'string' && !isNaN(cell.value)) ||
+                    // 添加对日期格式的判断
+                    cell.value instanceof Date ||
+                    (typeof cell.value === 'string' && /^\d{4}[-/年]\d{1,2}[-/月]\d{1,2}日?$/.test(cell.value))) {
+                    
                     cell.font = { name: 'Times New Roman', size: 11 };
                     if (typeof cell.value === 'number') {
                         cell.numFmt = '0.00';
