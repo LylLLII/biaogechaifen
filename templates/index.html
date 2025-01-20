@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Excel文件处理系统</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f7;
+        }
+
+        .container {
+            background-color: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+
+        h1 {
+            color: #1d1d1f;
+            text-align: center;
+            margin-bottom: 30px;
+        }
+
+        .upload-area {
+            border: 2px dashed #ccc;
+            border-radius: 8px;
+            padding: 40px;
+            text-align: center;
+            margin-bottom: 20px;
+            background-color: #fafafa;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .upload-area:hover {
+            border-color: #0066cc;
+            background-color: #f0f0f0;
+        }
+
+        .upload-area.dragover {
+            border-color: #0066cc;
+            background-color: #e6f2ff;
+        }
+
+        #fileInput {
+            display: none;
+        }
+
+        .button {
+            background-color: #0066cc;
+            color: white;
+            padding: 12px 24px;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 16px;
+            transition: background-color 0.3s ease;
+        }
+
+        .button:hover {
+            background-color: #004499;
+        }
+
+        .button:disabled {
+            background-color: #ccc;
+            cursor: not-allowed;
+        }
+
+        #status {
+            margin-top: 20px;
+            padding: 10px;
+            border-radius: 4px;
+        }
+
+        .success {
+            color: #4CAF50;
+        }
+
+        .error {
+            color: #f44336;
+        }
+
+        .loading {
+            display: none;
+            margin: 20px auto;
+            text-align: center;
+        }
+
+        .loading-spinner {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #0066cc;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Excel文件处理系统</h1>
+        
+        <div class="upload-area" id="dropZone">
+            <p>点击或拖拽Excel文件到这里上传</p>
+            <input type="file" id="fileInput" accept=".xlsx" />
+        </div>
+
+        <div style="text-align: center;">
+            <button id="processButton" class="button" disabled>处理文件</button>
+        </div>
+
+        <div class="loading" id="loading">
+            <div class="loading-spinner"></div>
+            <p>正在处理文件，请稍候...</p>
+        </div>
+
+        <div id="status"></div>
+    </div>
+
+    <script>
+        const dropZone = document.getElementById('dropZone');
+        const fileInput = document.getElementById('fileInput');
+        const processButton = document.getElementById('processButton');
+        const status = document.getElementById('status');
+        const loading = document.getElementById('loading');
+
+        // 点击上传区域触发文件选择
+        dropZone.onclick = () => fileInput.click();
+
+        // 拖拽相关事件
+        dropZone.ondragover = (e) => {
+            e.preventDefault();
+            dropZone.classList.add('dragover');
+        };
+
+        dropZone.ondragleave = () => {
+            dropZone.classList.remove('dragover');
+        };
+
+        dropZone.ondrop = (e) => {
+            e.preventDefault();
+            dropZone.classList.remove('dragover');
+            const files = e.dataTransfer.files;
+            if (files.length > 0) {
+                fileInput.files = files;
+                updateButtonState();
+            }
+        };
+
+        // 文件选择变化时更新按钮状态
+        fileInput.onchange = updateButtonState;
+
+        function updateButtonState() {
+            processButton.disabled = !fileInput.files.length;
+            if (fileInput.files.length) {
+                status.textContent = `已选择文件: ${fileInput.files[0].name}`;
+                status.className = 'success';
+            }
+        }
+
+        // 处理文件
+        processButton.onclick = async () => {
+            const file = fileInput.files[0];
+            if (!file) return;
+
+            const formData = new FormData();
+            formData.append('file', file);
+
+            loading.style.display = 'block';
+            processButton.disabled = true;
+            status.textContent = '';
+
+            try {
+                const response = await fetch('/process', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                if (response.ok) {
+                    const blob = await response.blob();
+                    const url = window.URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = '处理结果.zip';
+                    document.body.appendChild(a);
+                    a.click();
+                    window.URL.revokeObjectURL(url);
+                    document.body.removeChild(a);
+                    
+                    status.textContent = '文件处理成功！已开始下载。';
+                    status.className = 'success';
+                } else {
+                    const error = await response.json();
+                    throw new Error(error.error || '处理失败');
+                }
+            } catch (error) {
+                status.textContent = `错误：${error.message}`;
+                status.className = 'error';
+            } finally {
+                loading.style.display = 'none';
+                processButton.disabled = false;
+                fileInput.value = '';
+                updateButtonState();
+            }
+        };
+    </script>
+</body>
+</html> 
