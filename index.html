@@ -17,6 +17,7 @@
         <div class="tabs">
             <div class="tab active" data-target="split-individual">拆分各家分表</div>
             <div class="tab" data-target="split-summary">拆分汇总表</div>
+            <div class="tab" data-target="split-location-summary">按本地分类汇总表</div>
         </div>
 
         <div class="function-area active" id="split-individual">
@@ -38,6 +39,17 @@
 
             <div style="text-align: center;">
                 <button id="processButton2" class="button" disabled>处理文件</button>
+            </div>
+        </div>
+
+        <div class="function-area" id="split-location-summary">
+            <div class="upload-area" id="dropZone3">
+                <p>点击或拖拽Excel文件到这里上传</p>
+                <input type="file" id="fileInput3" accept=".xlsx" />
+            </div>
+
+            <div style="text-align: center;">
+                <button id="processButton3" class="button" disabled>处理文件</button>
             </div>
         </div>
 

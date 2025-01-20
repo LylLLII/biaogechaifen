@@ -104,10 +104,11 @@ async function processExcel(file) {
 
         const institutionCode = rowData['医疗机构编码'];
         const institutionName = rowData['医疗机构名称'];
+        // 直接使用原始金额，不过滤负数
         const amount = parseFloat(rowData['扣款金额']) || 0;
 
-        // 只处理扣款金额大于 0 的数据
-        if (amount > 0) {
+        // 只检查必要字段是否存在，不做金额判断
+        if (institutionCode && institutionName) {
             if (!groupedData[institutionCode]) {
                 groupedData[institutionCode] = {
                     name: institutionName,
@@ -302,16 +303,16 @@ async function processSummaryExcel(file) {
             if (header) rowData[header.trim()] = cell.value;
         });
 
-        // 只处理有效数据且扣款金额大于 0 的行
-        const amount = parseFloat(rowData['扣款金额']) || 0;
+        // 删除金额判断，处理所有记录
         if (rowData['医疗机构编码'] && rowData['医疗机构名称'] && 
-            rowData['险种类型'] && amount > 0) {
+            rowData['险种类型']) {
+            const amount = parseFloat(rowData['扣款金额']) || 0;
             rows.push({
                 '医疗机构编码': rowData['医疗机构编码'],
                 '医疗机构名称': rowData['医疗机构名称'],
                 '扣款金额': amount,
                 '险种类型': rowData['险种类型'],
-                '人次': 1
+                '人次': 1  // 每条记录都计算一次人次
             });
         }
     });
@@ -328,8 +329,15 @@ async function processSummaryExcel(file) {
 
     const zip = new JSZip();
 
-    for (const [shortName, fullName] of Object.entries(categories)) {
-        const typeData = rows.filter(row => row['险种类型'].includes(shortName));
+    for (const [category, insuranceType] of Object.entries(categories)) {
+        const isEmployee = category === '职工';
+
+        // 在数据分组时保持所有记录
+        const typeData = rows.filter(row => {
+            return isEmployee ? 
+                row['险种类型'].includes('职工') : 
+                row['险种类型'].includes('居民');
+        });
 
         const groupedData = {};
         typeData.forEach(row => {
@@ -338,6 +346,193 @@ async function processSummaryExcel(file) {
                 groupedData[code] = {
                     '医疗机构编码': code,
                     '医疗机构名称': hospitalNameMap[row['医疗机构名称']] || row['医疗机构名称'],
+                    '扣款金额': 0,
+                    '人次': 0
+                };
+            }
+            groupedData[code]['扣款金额'] += row['扣款金额'];
+            groupedData[code]['人次'] += row['人次'];
+        });
+
+        const wb = new ExcelJS.Workbook();
+        const ws = wb.addWorksheet('Sheet1');
+
+        ws.getColumn(1).width = 8.4;   // 序号
+        ws.getColumn(2).width = 20;    // 医疗机构编码
+        ws.getColumn(3).width = 56;    // 医疗机构名称
+        ws.getColumn(4).width = 12;    // 扣款金额
+        ws.getColumn(5).width = 12;    // 人次
+
+        const title = `淮安经济技术开发区智能审核${year}年${month}月扣款统计表（${insuranceType}）`;
+        const titleRow = ws.addRow([title]);
+        ws.mergeCells(1, 1, 1, 5);
+        titleRow.height = 65;
+        titleRow.font = { name: '方正小标宋_GBK', size: 22 };
+        titleRow.alignment = { vertical: 'middle', horizontal: 'center' };
+
+        const unitRow = ws.addRow(['单位：人次/元']);
+        ws.mergeCells(2, 1, 2, 5);
+        unitRow.font = { name: '方正仿宋_GBK', size: 11 };
+        unitRow.alignment = { vertical: 'middle', horizontal: 'right' };
+
+        const headers = ['序号', '医疗机构编码', '医疗机构名称', '扣款金额', '人次'];
+        const headerRow = ws.addRow(headers);
+        headerRow.font = { name: '黑体', size: 11 };
+        headerRow.alignment = { vertical: 'middle', horizontal: 'center' };
+
+        let totalAmount = 0;
+        let totalCount = 0;
+        Object.values(groupedData).forEach((data, index) => {
+            totalAmount += data['扣款金额'];
+            totalCount += data['人次'];
+            
+            const row = ws.addRow([
+                index + 1,
+                data['医疗机构编码'],
+                data['医疗机构名称'],
+                data['扣款金额'].toFixed(2),
+                data['人次']
+            ]);
+
+            row.eachCell((cell, colNumber) => {
+                if (colNumber === 2 || colNumber === 4 || colNumber === 5) {
+                    cell.font = { name: 'Times New Roman', size: 11 };
+                } else {
+                    cell.font = { name: '方正仿宋_GBK', size: 11 };
+                }
+                
+                cell.border = {
+                    top: { style: 'thin' },
+                    left: { style: 'thin' },
+                    bottom: { style: 'thin' },
+                    right: { style: 'thin' }
+                };
+                
+                cell.alignment = { vertical: 'middle', horizontal: 'center' };
+            });
+        });
+
+        const totalRow = ws.addRow(['合计', '', '', totalAmount.toFixed(2), totalCount]);
+        ws.mergeCells(ws.rowCount, 1, ws.rowCount, 3);
+        totalRow.eachCell((cell, colNumber) => {
+            if (colNumber === 4 || colNumber === 5) {
+                cell.font = { name: 'Times New Roman', size: 11 };
+            } else {
+                cell.font = { name: '方正仿宋_GBK', size: 11 };
+            }
+            cell.alignment = { vertical: 'middle', horizontal: 'center' };
+            cell.border = {
+                top: { style: 'thin' },
+                left: { style: 'thin' },
+                bottom: { style: 'thin' },
+                right: { style: 'thin' }
+            };
+        });
+
+        const signRow = ws.addRow(['', '审批人：', '复核：', '初审：', '']);
+        signRow.eachCell(cell => {
+            cell.font = { name: '方正仿宋_GBK', size: 11 };
+            cell.alignment = { vertical: 'middle', horizontal: 'left' };
+        });
+
+        headerRow.eachCell(cell => {
+            cell.border = {
+                top: { style: 'thin' },
+                left: { style: 'thin' },
+                bottom: { style: 'thin' },
+                right: { style: 'thin' }
+            };
+        });
+
+        const buffer = await wb.xlsx.writeBuffer();
+        const fileName = `淮安经济技术开发区智能审核${year}年${month}月扣款统计表（${insuranceType}）.xlsx`;
+        zip.file(fileName, buffer);
+    }
+
+    const content = await zip.generateAsync({type: "blob"});
+    saveAs(content, `职工居民汇总表_${year}${month}.zip`);
+}
+
+// 添加新的处理函数
+async function processLocationSummaryExcel(file) {
+    const fileName = file.name;
+    const dateMatch = fileName.match(/(\d{4})年?(\d{1,2})月?/);
+    let year = '', month = '';
+    
+    if (dateMatch) {
+        year = dateMatch[1];
+        month = dateMatch[2].replace(/^0+/, '');
+    } else {
+        const altMatch = fileName.match(/(\d{4})(\d{2})/);
+        if (altMatch) {
+            year = altMatch[1];
+            month = altMatch[2].replace(/^0+/, '');
+        }
+    }
+
+    const data = await file.arrayBuffer();
+    const workbook = new ExcelJS.Workbook();
+    await workbook.xlsx.load(data);
+    const worksheet = workbook.getWorksheet(1);
+
+    const rows = [];
+    worksheet.eachRow((row, rowNumber) => {
+        if (rowNumber <= 2) return;
+
+        const rowData = {};
+        row.eachCell((cell, colNumber) => {
+            const header = worksheet.getRow(2).getCell(colNumber).value;
+            if (header) rowData[header.trim()] = cell.value;
+        });
+
+        // 只检查必要字段是否存在，不做金额判断
+        if (rowData['医疗机构编码'] && rowData['医疗机构名称'] && 
+            rowData['险种类型']) {
+            // 直接使用原始金额，不过滤负数
+            const amount = parseFloat(rowData['扣款金额']) || 0;
+            rows.push({
+                '医疗机构编码': rowData['医疗机构编码'],
+                '医疗机构名称': rowData['医疗机构名称'],
+                '扣款金额': amount,  // 保持原始金额
+                '险种类型': rowData['险种类型'],
+                '人次': 1,
+                '是否本地': rowData['是否本地']
+            });
+        }
+    });
+
+    const categories = {
+        '本地-职工': '职工基本医疗保险',
+        '本地-居民': '城乡居民基本医疗保险',
+        '非本地-职工': '职工基本医疗保险',
+        '非本地-居民': '城乡居民基本医疗保险'
+    };
+
+    const zip = new JSZip();
+
+    for (const [category, insuranceType] of Object.entries(categories)) {
+        // 解析类别
+        const isLocal = category.startsWith('本地');
+        const isEmployee = category.includes('职工');
+
+        // 根据"是否本地"列和险种类型筛选数据
+        const typeData = rows.filter(row => {
+            const matchesInsurance = isEmployee ? 
+                row['险种类型'].includes('职工') : 
+                row['险种类型'].includes('居民');
+            const matchesLocation = isLocal ? 
+                row['是否本地'] === '是' : 
+                row['是否本地'] === '否';
+            return matchesInsurance && matchesLocation;
+        });
+
+        const groupedData = {};
+        typeData.forEach(row => {
+            const code = row['医疗机构编码'];
+            if (!groupedData[code]) {
+                groupedData[code] = {
+                    '医疗机构编码': code,
+                    '医疗机构名称': row['医疗机构名称'],
                     '扣款金额': 0,
                     '人次': 0
                 };
@@ -366,7 +561,7 @@ async function processSummaryExcel(file) {
         ws.getColumn(4).width = 12;    // 扣款金额
         ws.getColumn(5).width = 12;    // 人次
 
-        const title = `淮安经济技术开发区智能审核${year}年${month}月扣款统计表（${fullName}）`;
+        const title = `淮安经济技术开发区智能审核${year}年${month}月扣款统计表（${insuranceType}）`;
         const titleRow = ws.addRow([title]);
         ws.mergeCells(1, 1, 1, 5);
         titleRow.height = 65;
@@ -448,11 +643,13 @@ async function processSummaryExcel(file) {
         });
 
         const buffer = await wb.xlsx.writeBuffer();
-        zip.file(`淮安经济技术开发区智能审核${year}年${month}月扣款统计表（${fullName}）.xlsx`, buffer);
+        const locationPrefix = isLocal ? '本地' : '非本地';
+        const fileName = `淮安经济技术开发区智能审核${year}年${month}月${locationPrefix}扣款统计表（${insuranceType}）.xlsx`;
+        zip.file(fileName, buffer);
     }
 
     const content = await zip.generateAsync({type: "blob"});
-    saveAs(content, `职工居民汇总表_${year}${month}.zip`);
+    saveAs(content, `按本地分类汇总表_${year}${month}.zip`);
 }
 
 // 获取 DOM 元素
@@ -532,4 +729,39 @@ processButton2.onclick = async () => {
         fileInput2.value = '';
         updateButton2State();
     }
-}; 
+};
+
+// 添加新的 DOM 元素
+const dropZone3 = document.getElementById('dropZone3');
+const fileInput3 = document.getElementById('fileInput3');
+const processButton3 = document.getElementById('processButton3');
+
+// 创建新的状态更新函数
+const updateButton3State = createStatusUpdater(processButton3, fileInput3);
+
+// 应用上传处理器
+createUploadHandler(dropZone3, fileInput3, updateButton3State);
+
+// 添加新的处理按钮事件
+processButton3.onclick = async () => {
+    const file = fileInput3.files[0];
+    if (!file) return;
+
+    loading.style.display = 'block';
+    processButton3.disabled = true;
+    status.textContent = '';
+
+    try {
+        await processLocationSummaryExcel(file);
+        status.textContent = '按本地分类汇总表处理成功！';
+        status.className = 'success';
+    } catch (error) {
+        status.textContent = `错误：${error.message}`;
+        status.className = 'error';
+    } finally {
+        loading.style.display = 'none';
+        processButton3.disabled = false;
+        fileInput3.value = '';
+        updateButton3State();
+    }
+};
